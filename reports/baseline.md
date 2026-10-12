@@ -1,5 +1,10 @@
 # Baseline — điền trong checkpoint 1
 
-1. Agent có identity mỗi run chưa? Dẫn file/hàm:
-2. Ai cho phép `http_post`? Dẫn file/hàm:
-3. Nếu gửi sai PII ra sink, bằng chứng ở đâu? Dẫn file/hàm:
+1. **Agent có identity mỗi run chưa? Dẫn file/hàm:**
+   - **Chưa có.** Trong `agent/loop.py`, hàm `_naive_loop(message: str, llm)` (dòng 27–54) không khởi tạo bất kỳ định danh phiên chạy nào (`agent_id`, `run_id`, `agent_owner`, `agent_scopes`, `expires_at`). Khi `run_once()` (`agent/loop.py`, dòng 57–75) fallback về `_naive_loop(message, llm)` ở dòng 74, tham số `principal_id` cũng bị bỏ qua hoàn toàn; toàn bộ 3 tool (`search_docs`, `read_customer`, `http_post`) đều chạy chung trong một context duy nhất không có ranh giới định danh giữa các run.
+
+2. **Ai cho phép `http_post`? Dẫn file/hàm:**
+   - **Không có Policy Enforcement Point (PEP) nào cấp phép; lệnh gọi hoàn toàn do dữ liệu không tin cậy (untrusted content) điều khiển.** Cụ thể, trong `agent/loop.py`, hàm `_naive_loop()` gọi `llm.find_injection(combined_text)` (dòng 34, định nghĩa tại `agent/llm.py` hàm `find_injection()` dòng 65–79). Nếu thấy chỉ thị tiêm vào trong văn bản ticket, `_naive_loop()` tự động đọc hồ sơ khách hàng qua `tools.read_customer()` (dòng 39) và gọi thẳng `tools.http_post(injected.target_url, {"records": collected})` (dòng 44) mà không qua `agent.policy.check()`. Trong `agent/tools.py`, hàm `http_post()` (dòng 68–85) chỉ kiểm tra hard-allowlist đích mạng `http://127.0.0.1:10024/*` (dòng 76–83) để giữ an toàn cho bài lab chứ không kiểm tra quyền hay phân loại dữ liệu `restricted`.
+
+3. **Nếu gửi sai PII ra sink, bằng chứng ở đâu? Dẫn file/hàm:**
+   - **Phía agent hoàn toàn không có bằng chứng (mù audit)** vì `_naive_loop()` trong `agent/loop.py` (dòng 27–54) không gọi `agent.ledger.append()` để ghi nhật ký tool call. Bằng chứng duy nhất cho thấy PII (`cccd`, `phone`, `bank_account`, `email` của `KH-000999`) đã bị gửi sai nằm ở phía server đích (exfil sink): hàm `make_handler()` / `Handler.do_POST()` trong `sink/sink.py` (dòng 40–50) ghi trực tiếp payload JSON nhận được vào file `reports/sink.log` (khai báo tại `sink/sink.py` dòng 36–37, sau đó được lưu thành `reports/attack-before.log` ở Bước 2).
